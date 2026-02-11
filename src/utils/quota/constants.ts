@@ -165,13 +165,15 @@ export const CODEX_REQUEST_HEADERS = {
 };
 
 // Kiro (AWS CodeWhisperer) API configuration
-export const KIRO_QUOTA_URL =
-  'https://codewhisperer.us-east-1.amazonaws.com/getUsageLimits?isEmailRequired=true&origin=AI_EDITOR&resourceType=AGENTIC_REQUEST';
+export const KIRO_QUOTA_URL = 'https://codewhisperer.us-east-1.amazonaws.com';
 
 export const KIRO_REQUEST_HEADERS = {
+  'Content-Type': 'application/x-amz-json-1.0',
+  'x-amz-target': 'AmazonCodeWhispererService.GetUsageLimits',
   Authorization: 'Bearer $TOKEN$',
-  'x-amz-user-agent': 'aws-sdk-js/1.0.0 KiroIDE-0.6.18-cpamc',
-  'User-Agent': 'aws-sdk-js/1.0.0 ua/2.1 os/windows lang/js md/nodejs#20.16.0 api/codewhispererruntime#1.0.0 m/E KiroIDE-0.6.18-cpamc',
-  'amz-sdk-request': 'attempt=1; max=1',
-  Connection: 'close',
 };
+
+export const KIRO_REQUEST_BODY = JSON.stringify({
+  origin: 'AI_EDITOR',
+  resourceType: 'AGENTIC_REQUEST',
+});

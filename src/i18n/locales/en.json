@@ -484,14 +484,15 @@
     "loading": "Loading quota...",
     "load_failed": "Failed to load quota: {{message}}",
     "missing_auth_index": "Auth file missing auth_index",
-    "empty_data": "No quota data available",
+    "empty": "No quota data available",
+    "suspended": "Account temporarily suspended",
     "refresh_button": "Refresh Quota",
     "fetch_all": "Fetch All",
     "subscription_label": "Subscription",
-    "base_credits_label": "Base Credits",
-    "bonus_credits_label": "Bonus Credits",
-    "total_credits_label": "Total Credits",
-    "remaining_credits": "Remaining {{count}}"
+    "base_quota": "Base Quota",
+    "free_trial": "Free Trial",
+    "trial_active": "Active",
+    "trial_expired": "Expired"
   },
   "vertex_import": {
     "title": "Vertex JSON Login",

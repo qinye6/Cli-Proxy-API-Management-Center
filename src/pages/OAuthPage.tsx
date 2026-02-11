@@ -361,7 +361,7 @@ export function OAuthPage() {
       const startUrl = kiroOAuth.startUrl.trim();
       const region = kiroOAuth.region.trim();
       if (startUrl) {
-        url += `&start_url=${encodeURIComponent(startUrl)}`;
+        url += `&startUrl=${encodeURIComponent(startUrl)}`;
       }
       if (region) {
         url += `&region=${encodeURIComponent(region)}`;

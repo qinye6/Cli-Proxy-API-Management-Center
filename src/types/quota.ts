@@ -146,57 +146,63 @@ export interface CodexQuotaState {
   errorStatus?: number;
 }
 
-// Kiro (AWS CodeWhisperer) quota types
+// Kiro (AWS CodeWhisperer) API payload types
+export interface KiroSubscriptionInfo {
+  subscriptionTitle: string;
+  type?: string;
+  overageCapability?: string;
+  upgradeCapability?: string;
+}
+
 export interface KiroFreeTrialInfo {
-  freeTrialStatus?: string;
-  usageLimit?: number;
-  currentUsage?: number;
-  usageLimitWithPrecision?: number;
-  currentUsageWithPrecision?: number;
+  freeTrialStatus: string;
+  usageLimitWithPrecision: number;
+  currentUsageWithPrecision: number;
+  freeTrialExpiry: number;
 }
 
 export interface KiroUsageBreakdown {
-  usageLimit?: number;
-  currentUsage?: number;
-  usageLimitWithPrecision?: number;
-  currentUsageWithPrecision?: number;
+  resourceType: string;
+  usageLimitWithPrecision: number;
+  currentUsageWithPrecision: number;
   nextDateReset?: number;
-  displayName?: string;
-  resourceType?: string;
   freeTrialInfo?: KiroFreeTrialInfo;
+  overageRate?: number;
+  currency?: string;
 }
 
 export interface KiroQuotaPayload {
   daysUntilReset?: number;
-  nextDateReset?: number;
-  userInfo?: {
-    email?: string;
-    userId?: string;
-  };
-  subscriptionInfo?: {
-    subscriptionTitle?: string;
-    type?: string;
-  };
-  usageBreakdownList?: KiroUsageBreakdown[];
+  nextDateReset: number;
+  subscriptionInfo: KiroSubscriptionInfo;
+  usageBreakdownList: KiroUsageBreakdown[];
+  userInfo?: { userId: string };
+}
+
+export interface KiroQuotaErrorPayload {
+  __type?: string;
+  message?: string;
+  reason?: string;
+}
+
+export interface KiroBaseQuota {
+  used: number;
+  limit: number;
+  resetTime: number;
+}
+
+export interface KiroFreeTrialQuota {
+  used: number;
+  limit: number;
+  expiry: number;
+  status: string;
 }
 
 export interface KiroQuotaState {
   status: 'idle' | 'loading' | 'success' | 'error';
-  // Base quota (原本额度)
-  baseUsage: number | null;
-  baseLimit: number | null;
-  baseRemaining: number | null;
-  // Free trial/bonus quota (赠送额度)
-  bonusUsage: number | null;
-  bonusLimit: number | null;
-  bonusRemaining: number | null;
-  bonusStatus?: string;
-  // Total (合计)
-  currentUsage: number | null;
-  usageLimit: number | null;
-  remainingCredits: number | null;
-  nextReset?: string;
-  subscriptionType?: string;
+  subscriptionTitle: string | null;
+  baseQuota: KiroBaseQuota | null;
+  freeTrialQuota: KiroFreeTrialQuota | null;
   error?: string;
   errorStatus?: number;
 }

@@ -484,14 +484,15 @@
     "loading": "正在加载额度...",
     "load_failed": "额度获取失败：{{message}}",
     "missing_auth_index": "认证文件缺少 auth_index",
-    "empty_data": "暂无额度数据",
+    "empty": "暂无额度数据",
+    "suspended": "账户已被临时封禁",
     "refresh_button": "刷新额度",
     "fetch_all": "获取全部",
     "subscription_label": "订阅类型",
-    "base_credits_label": "基础额度",
-    "bonus_credits_label": "赠送额度",
-    "total_credits_label": "合计额度",
-    "remaining_credits": "剩余 {{count}}"
+    "base_quota": "基础额度",
+    "free_trial": "免费试用",
+    "trial_active": "试用中",
+    "trial_expired": "已过期"
   },
   "vertex_import": {
     "title": "Vertex JSON 登录",
