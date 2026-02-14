@@ -16,7 +16,7 @@ import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { IconChevronDown } from '@/components/ui/icons';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
-import { useThemeStore } from '@/stores';
+import { useThemeStore, useConfigStore } from '@/stores';
 import {
   StatCards,
   UsageChart,
@@ -24,6 +24,9 @@ import {
   ApiDetailsCard,
   ModelStatsCard,
   PriceSettingsCard,
+  CredentialStatsCard,
+  TokenBreakdownChart,
+  CostTrendChart,
   useUsageData,
   useSparklines,
   useChartData
@@ -115,6 +118,7 @@ export function UsagePage() {
   const isMobile = useMediaQuery('(max-width: 768px)');
   const resolvedTheme = useThemeStore((state) => state.resolvedTheme);
   const isDark = resolvedTheme === 'dark';
+  const config = useConfigStore((state) => state.config);
 
   // Time range dropdown
   const [timeRangeOpen, setTimeRangeOpen] = useState(false);
@@ -134,6 +138,7 @@ export function UsagePage() {
     usage,
     loading,
     error,
+    lastRefreshedAt,
     modelPrices,
     setModelPrices,
     loadUsage,
@@ -305,6 +310,11 @@ export function UsagePage() {
             style={{ display: 'none' }}
             onChange={handleImportChange}
           />
+          {lastRefreshedAt && (
+            <span className={styles.lastRefreshed}>
+              {t('usage_stats.last_updated')}: {lastRefreshedAt.toLocaleTimeString()}
+            </span>
+          )}
         </div>
       </div>
 
@@ -356,11 +366,41 @@ export function UsagePage() {
         />
       </div>
 
+      {/* Token Breakdown Chart */}
+      <TokenBreakdownChart
+        usage={filteredUsage}
+        loading={loading}
+        isDark={isDark}
+        isMobile={isMobile}
+        hourWindowHours={hourWindowHours}
+      />
+
+      {/* Cost Trend Chart */}
+      <CostTrendChart
+        usage={filteredUsage}
+        loading={loading}
+        isDark={isDark}
+        isMobile={isMobile}
+        modelPrices={modelPrices}
+        hourWindowHours={hourWindowHours}
+      />
+
       {/* Details Grid */}
       <div className={styles.detailsGrid}>
         <ApiDetailsCard apiStats={apiStats} loading={loading} hasPrices={hasPrices} />
         <ModelStatsCard modelStats={modelStats} loading={loading} hasPrices={hasPrices} />
       </div>
+
+      {/* Credential Stats */}
+      <CredentialStatsCard
+        usage={filteredUsage}
+        loading={loading}
+        geminiKeys={config?.geminiApiKeys || []}
+        claudeConfigs={config?.claudeApiKeys || []}
+        codexConfigs={config?.codexApiKeys || []}
+        vertexConfigs={config?.vertexApiKeys || []}
+        openaiProviders={config?.openaiCompatibility || []}
+      />
 
       {/* Price Settings */}
       <PriceSettingsCard

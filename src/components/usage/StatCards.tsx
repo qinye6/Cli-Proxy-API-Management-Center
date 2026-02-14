@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Line } from 'react-chartjs-2';
 import { IconDiamond, IconDollarSign, IconSatellite, IconTimer, IconTrendingUp } from '@/components/ui/icons';
 import {
-  formatTokensInMillions,
+  formatCompactNumber,
   formatPerMinuteValue,
   formatUsd,
   calculateTokenBreakdown,
@@ -56,9 +56,9 @@ export function StatCards({ usage, loading, modelPrices, sparklines }: StatCards
       key: 'requests',
       label: t('usage_stats.total_requests'),
       icon: <IconSatellite size={16} />,
-      accent: '#3b82f6',
-      accentSoft: 'rgba(59, 130, 246, 0.18)',
-      accentBorder: 'rgba(59, 130, 246, 0.35)',
+      accent: '#8b8680',
+      accentSoft: 'rgba(139, 134, 128, 0.18)',
+      accentBorder: 'rgba(139, 134, 128, 0.35)',
       value: loading ? '-' : (usage?.total_requests ?? 0).toLocaleString(),
       meta: (
         <>
@@ -67,7 +67,7 @@ export function StatCards({ usage, loading, modelPrices, sparklines }: StatCards
             {t('usage_stats.success_requests')}: {loading ? '-' : (usage?.success_count ?? 0)}
           </span>
           <span className={styles.statMetaItem}>
-            <span className={styles.statMetaDot} style={{ backgroundColor: '#ef4444' }} />
+            <span className={styles.statMetaDot} style={{ backgroundColor: '#c65746' }} />
             {t('usage_stats.failed_requests')}: {loading ? '-' : (usage?.failure_count ?? 0)}
           </span>
         </>
@@ -81,14 +81,14 @@ export function StatCards({ usage, loading, modelPrices, sparklines }: StatCards
       accent: '#8b5cf6',
       accentSoft: 'rgba(139, 92, 246, 0.18)',
       accentBorder: 'rgba(139, 92, 246, 0.35)',
-      value: loading ? '-' : formatTokensInMillions(usage?.total_tokens ?? 0),
+      value: loading ? '-' : formatCompactNumber(usage?.total_tokens ?? 0),
       meta: (
         <>
           <span className={styles.statMetaItem}>
-            {t('usage_stats.cached_tokens')}: {loading ? '-' : formatTokensInMillions(tokenBreakdown.cachedTokens)}
+            {t('usage_stats.cached_tokens')}: {loading ? '-' : formatCompactNumber(tokenBreakdown.cachedTokens)}
           </span>
           <span className={styles.statMetaItem}>
-            {t('usage_stats.reasoning_tokens')}: {loading ? '-' : formatTokensInMillions(tokenBreakdown.reasoningTokens)}
+            {t('usage_stats.reasoning_tokens')}: {loading ? '-' : formatCompactNumber(tokenBreakdown.reasoningTokens)}
           </span>
         </>
       ),
@@ -119,7 +119,7 @@ export function StatCards({ usage, loading, modelPrices, sparklines }: StatCards
       value: loading ? '-' : formatPerMinuteValue(rateStats.tpm),
       meta: (
         <span className={styles.statMetaItem}>
-          {t('usage_stats.total_tokens')}: {loading ? '-' : formatTokensInMillions(rateStats.tokenCount)}
+          {t('usage_stats.total_tokens')}: {loading ? '-' : formatCompactNumber(rateStats.tokenCount)}
         </span>
       ),
       trend: sparklines.tpm
@@ -135,7 +135,7 @@ export function StatCards({ usage, loading, modelPrices, sparklines }: StatCards
       meta: (
         <>
           <span className={styles.statMetaItem}>
-            {t('usage_stats.total_tokens')}: {loading ? '-' : formatTokensInMillions(usage?.total_tokens ?? 0)}
+            {t('usage_stats.total_tokens')}: {loading ? '-' : formatCompactNumber(usage?.total_tokens ?? 0)}
           </span>
           {!hasPrices && (
             <span className={`${styles.statMetaItem} ${styles.statSubtle}`}>

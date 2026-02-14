@@ -388,17 +388,6 @@ export function maskUsageSensitiveValue(value: unknown, masker: (val: string) =>
 }
 
 /**
- * 格式化 tokens 为百万单位
- */
-export function formatTokensInMillions(value: number): string {
-  const num = Number(value);
-  if (!Number.isFinite(num)) {
-    return '0.00M';
-  }
-  return `${(num / 1_000_000).toFixed(2)}M`;
-}
-
-/**
  * 格式化每分钟数值
  */
 export function formatPerMinuteValue(value: number): string {
@@ -1014,10 +1003,10 @@ export interface ChartData {
 }
 
 const CHART_COLORS = [
-  { borderColor: '#3b82f6', backgroundColor: 'rgba(59, 130, 246, 0.15)' },
+  { borderColor: '#8b8680', backgroundColor: 'rgba(139, 134, 128, 0.15)' },
   { borderColor: '#22c55e', backgroundColor: 'rgba(34, 197, 94, 0.15)' },
   { borderColor: '#f59e0b', backgroundColor: 'rgba(245, 158, 11, 0.15)' },
-  { borderColor: '#ef4444', backgroundColor: 'rgba(239, 68, 68, 0.15)' },
+  { borderColor: '#c65746', backgroundColor: 'rgba(198, 87, 70, 0.15)' },
   { borderColor: '#8b5cf6', backgroundColor: 'rgba(139, 92, 246, 0.15)' },
   { borderColor: '#06b6d4', backgroundColor: 'rgba(6, 182, 212, 0.15)' },
   { borderColor: '#ec4899', backgroundColor: 'rgba(236, 72, 153, 0.15)' },
@@ -1276,4 +1265,209 @@ export function computeKeyStats(usageData: unknown, masker: (val: string) => str
     bySource: sourceStats,
     byAuthIndex: authIndexStats
   };
+}
+
+export type TokenCategory = 'input' | 'output' | 'cached' | 'reasoning';
+
+export interface TokenBreakdownSeries {
+  labels: string[];
+  dataByCategory: Record<TokenCategory, number[]>;
+  hasData: boolean;
+}
+
+/**
+ * 按 token 类别构建小时级别的堆叠序列
+ */
+export function buildHourlyTokenBreakdown(
+  usageData: unknown,
+  hourWindow: number = 24
+): TokenBreakdownSeries {
+  const hourMs = 60 * 60 * 1000;
+  const resolvedHourWindow =
+    Number.isFinite(hourWindow) && hourWindow > 0
+      ? Math.min(Math.max(Math.floor(hourWindow), 1), 24 * 31)
+      : 24;
+  const now = new Date();
+  const currentHour = new Date(now);
+  currentHour.setMinutes(0, 0, 0);
+
+  const earliestBucket = new Date(currentHour);
+  earliestBucket.setHours(earliestBucket.getHours() - (resolvedHourWindow - 1));
+  const earliestTime = earliestBucket.getTime();
+
+  const labels: string[] = [];
+  for (let i = 0; i < resolvedHourWindow; i++) {
+    labels.push(formatHourLabel(new Date(earliestTime + i * hourMs)));
+  }
+
+  const dataByCategory: Record<TokenCategory, number[]> = {
+    input: new Array(labels.length).fill(0),
+    output: new Array(labels.length).fill(0),
+    cached: new Array(labels.length).fill(0),
+    reasoning: new Array(labels.length).fill(0),
+  };
+
+  const details = collectUsageDetails(usageData);
+  let hasData = false;
+
+  details.forEach((detail) => {
+    const timestamp = Date.parse(detail.timestamp);
+    if (Number.isNaN(timestamp)) return;
+    const normalized = new Date(timestamp);
+    normalized.setMinutes(0, 0, 0);
+    const bucketStart = normalized.getTime();
+    const lastBucketTime = earliestTime + (labels.length - 1) * hourMs;
+    if (bucketStart < earliestTime || bucketStart > lastBucketTime) return;
+    const bucketIndex = Math.floor((bucketStart - earliestTime) / hourMs);
+    if (bucketIndex < 0 || bucketIndex >= labels.length) return;
+
+    const tokens = detail.tokens;
+    const input = typeof tokens.input_tokens === 'number' ? Math.max(tokens.input_tokens, 0) : 0;
+    const output = typeof tokens.output_tokens === 'number' ? Math.max(tokens.output_tokens, 0) : 0;
+    const cached = Math.max(
+      typeof tokens.cached_tokens === 'number' ? Math.max(tokens.cached_tokens, 0) : 0,
+      typeof tokens.cache_tokens === 'number' ? Math.max(tokens.cache_tokens, 0) : 0,
+    );
+    const reasoning = typeof tokens.reasoning_tokens === 'number' ? Math.max(tokens.reasoning_tokens, 0) : 0;
+
+    dataByCategory.input[bucketIndex] += input;
+    dataByCategory.output[bucketIndex] += output;
+    dataByCategory.cached[bucketIndex] += cached;
+    dataByCategory.reasoning[bucketIndex] += reasoning;
+    hasData = true;
+  });
+
+  return { labels, dataByCategory, hasData };
+}
+
+/**
+ * 按 token 类别构建日级别的堆叠序列
+ */
+export function buildDailyTokenBreakdown(usageData: unknown): TokenBreakdownSeries {
+  const details = collectUsageDetails(usageData);
+  const dayMap: Record<string, Record<TokenCategory, number>> = {};
+  let hasData = false;
+
+  details.forEach((detail) => {
+    const timestamp = Date.parse(detail.timestamp);
+    if (Number.isNaN(timestamp)) return;
+    const dayLabel = formatDayLabel(new Date(timestamp));
+    if (!dayLabel) return;
+
+    if (!dayMap[dayLabel]) {
+      dayMap[dayLabel] = { input: 0, output: 0, cached: 0, reasoning: 0 };
+    }
+
+    const tokens = detail.tokens;
+    const input = typeof tokens.input_tokens === 'number' ? Math.max(tokens.input_tokens, 0) : 0;
+    const output = typeof tokens.output_tokens === 'number' ? Math.max(tokens.output_tokens, 0) : 0;
+    const cached = Math.max(
+      typeof tokens.cached_tokens === 'number' ? Math.max(tokens.cached_tokens, 0) : 0,
+      typeof tokens.cache_tokens === 'number' ? Math.max(tokens.cache_tokens, 0) : 0,
+    );
+    const reasoning = typeof tokens.reasoning_tokens === 'number' ? Math.max(tokens.reasoning_tokens, 0) : 0;
+
+    dayMap[dayLabel].input += input;
+    dayMap[dayLabel].output += output;
+    dayMap[dayLabel].cached += cached;
+    dayMap[dayLabel].reasoning += reasoning;
+    hasData = true;
+  });
+
+  const labels = Object.keys(dayMap).sort();
+  const dataByCategory: Record<TokenCategory, number[]> = {
+    input: labels.map((l) => dayMap[l].input),
+    output: labels.map((l) => dayMap[l].output),
+    cached: labels.map((l) => dayMap[l].cached),
+    reasoning: labels.map((l) => dayMap[l].reasoning),
+  };
+
+  return { labels, dataByCategory, hasData };
+}
+
+export interface CostSeries {
+  labels: string[];
+  data: number[];
+  hasData: boolean;
+}
+
+/**
+ * 按小时构建费用时间序列
+ */
+export function buildHourlyCostSeries(
+  usageData: unknown,
+  modelPrices: Record<string, ModelPrice>,
+  hourWindow: number = 24
+): CostSeries {
+  const hourMs = 60 * 60 * 1000;
+  const resolvedHourWindow =
+    Number.isFinite(hourWindow) && hourWindow > 0
+      ? Math.min(Math.max(Math.floor(hourWindow), 1), 24 * 31)
+      : 24;
+  const now = new Date();
+  const currentHour = new Date(now);
+  currentHour.setMinutes(0, 0, 0);
+
+  const earliestBucket = new Date(currentHour);
+  earliestBucket.setHours(earliestBucket.getHours() - (resolvedHourWindow - 1));
+  const earliestTime = earliestBucket.getTime();
+
+  const labels: string[] = [];
+  for (let i = 0; i < resolvedHourWindow; i++) {
+    labels.push(formatHourLabel(new Date(earliestTime + i * hourMs)));
+  }
+
+  const data = new Array(labels.length).fill(0);
+  const details = collectUsageDetails(usageData);
+  let hasData = false;
+
+  details.forEach((detail) => {
+    const timestamp = Date.parse(detail.timestamp);
+    if (Number.isNaN(timestamp)) return;
+    const normalized = new Date(timestamp);
+    normalized.setMinutes(0, 0, 0);
+    const bucketStart = normalized.getTime();
+    const lastBucketTime = earliestTime + (labels.length - 1) * hourMs;
+    if (bucketStart < earliestTime || bucketStart > lastBucketTime) return;
+    const bucketIndex = Math.floor((bucketStart - earliestTime) / hourMs);
+    if (bucketIndex < 0 || bucketIndex >= labels.length) return;
+
+    const cost = calculateCost(detail, modelPrices);
+    if (cost > 0) {
+      data[bucketIndex] += cost;
+      hasData = true;
+    }
+  });
+
+  return { labels, data, hasData };
+}
+
+/**
+ * 按天构建费用时间序列
+ */
+export function buildDailyCostSeries(
+  usageData: unknown,
+  modelPrices: Record<string, ModelPrice>
+): CostSeries {
+  const details = collectUsageDetails(usageData);
+  const dayMap: Record<string, number> = {};
+  let hasData = false;
+
+  details.forEach((detail) => {
+    const timestamp = Date.parse(detail.timestamp);
+    if (Number.isNaN(timestamp)) return;
+    const dayLabel = formatDayLabel(new Date(timestamp));
+    if (!dayLabel) return;
+
+    const cost = calculateCost(detail, modelPrices);
+    if (cost > 0) {
+      dayMap[dayLabel] = (dayMap[dayLabel] || 0) + cost;
+      hasData = true;
+    }
+  });
+
+  const labels = Object.keys(dayMap).sort();
+  const data = labels.map((l) => dayMap[l]);
+
+  return { labels, data, hasData };
 }
