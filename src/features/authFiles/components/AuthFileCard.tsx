@@ -80,9 +80,11 @@ export function AuthFileCard(props: AuthFileCardProps) {
       ? styles.antigravityCard
       : quotaType === 'codex'
         ? styles.codexCard
-        : quotaType === 'gemini-cli'
-          ? styles.geminiCliCard
-          : '';
+        : quotaType === 'kiro'
+          ? styles.kiroCard
+          : quotaType === 'gemini-cli'
+            ? styles.geminiCliCard
+            : '';
 
   const rawAuthIndex = file['auth_index'] ?? file.authIndex;
   const authIndexKey = normalizeAuthIndexValue(rawAuthIndex);
