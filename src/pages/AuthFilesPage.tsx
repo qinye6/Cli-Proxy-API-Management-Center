@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
@@ -9,13 +9,11 @@ import { usePageTransitionLayer } from '@/components/common/PageTransitionLayer'
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { copyToClipboard } from '@/utils/clipboard';
 import {
-  MAX_CARD_PAGE_SIZE,
-  MIN_CARD_PAGE_SIZE,
   QUOTA_PROVIDER_TYPES,
-  clampCardPageSize,
   getTypeColor,
   getTypeLabel,
   isRuntimeOnlyAuthFile,
@@ -36,9 +34,40 @@ import { useAuthFilesPrefixProxyEditor } from '@/features/authFiles/hooks/useAut
 import { useAuthFilesStats } from '@/features/authFiles/hooks/useAuthFilesStats';
 import { useAuthFilesStatusBarCache } from '@/features/authFiles/hooks/useAuthFilesStatusBarCache';
 import { readAuthFilesUiState, writeAuthFilesUiState } from '@/features/authFiles/uiState';
-import { useAuthStore, useNotificationStore, useThemeStore } from '@/stores';
+import { useAuthStore, useNotificationStore, useQuotaStore, useThemeStore } from '@/stores';
 import type { AuthFileItem } from '@/types';
+import { resolveAuthProvider } from '@/utils/quota';
 import styles from './AuthFilesPage.module.scss';
+
+const PAGE_SIZE_OPTIONS = [10, 30, 50, 100, 300, 1000] as const;
+const DEFAULT_PAGE_SIZE = PAGE_SIZE_OPTIONS[0];
+
+const isPageSizeOption = (value: number): value is (typeof PAGE_SIZE_OPTIONS)[number] =>
+  PAGE_SIZE_OPTIONS.includes(value as (typeof PAGE_SIZE_OPTIONS)[number]);
+
+const normalizePageSizeOption = (value: unknown): number => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return DEFAULT_PAGE_SIZE;
+  const rounded = Math.round(parsed);
+  return isPageSizeOption(rounded) ? rounded : DEFAULT_PAGE_SIZE;
+};
+
+const buildQuotaSearchText = (value: unknown): string => {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => buildQuotaSearchText(item)).filter(Boolean).join(' ');
+  }
+  if (typeof value === 'object') {
+    return Object.entries(value as Record<string, unknown>)
+      .flatMap(([key, val]) => [key, buildQuotaSearchText(val)])
+      .filter(Boolean)
+      .join(' ');
+  }
+  return '';
+};
 
 export function AuthFilesPage() {
   const { t } = useTranslation();
@@ -52,8 +81,7 @@ export function AuthFilesPage() {
   const [filter, setFilter] = useState<'all' | string>('all');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(9);
-  const [pageSizeInput, setPageSizeInput] = useState('9');
+  const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
   const [detailModalOpen, setDetailModalOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState<AuthFileItem | null>(null);
   const [viewMode, setViewMode] = useState<'diagram' | 'list'>('list');
@@ -133,6 +161,9 @@ export function AuthFilesPage() {
   });
 
   const disableControls = connectionStatus !== 'connected';
+  const antigravityQuota = useQuotaStore((state) => state.antigravityQuota);
+  const codexQuota = useQuotaStore((state) => state.codexQuota);
+  const geminiCliQuota = useQuotaStore((state) => state.geminiCliQuota);
   const normalizedFilter = normalizeProviderKey(String(filter));
   const quotaFilterType: QuotaProviderType | null = QUOTA_PROVIDER_TYPES.has(
     normalizedFilter as QuotaProviderType
@@ -154,53 +185,13 @@ export function AuthFilesPage() {
       setPage(Math.max(1, Math.round(persisted.page)));
     }
     if (typeof persisted.pageSize === 'number' && Number.isFinite(persisted.pageSize)) {
-      setPageSize(clampCardPageSize(persisted.pageSize));
+      setPageSize(normalizePageSizeOption(persisted.pageSize));
     }
   }, []);
 
   useEffect(() => {
     writeAuthFilesUiState({ filter, search, page, pageSize });
   }, [filter, search, page, pageSize]);
-
-  useEffect(() => {
-    setPageSizeInput(String(pageSize));
-  }, [pageSize]);
-
-  const commitPageSizeInput = (rawValue: string) => {
-    const trimmed = rawValue.trim();
-    if (!trimmed) {
-      setPageSizeInput(String(pageSize));
-      return;
-    }
-
-    const value = Number(trimmed);
-    if (!Number.isFinite(value)) {
-      setPageSizeInput(String(pageSize));
-      return;
-    }
-
-    const next = clampCardPageSize(value);
-    setPageSize(next);
-    setPageSizeInput(String(next));
-    setPage(1);
-  };
-
-  const handlePageSizeChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const rawValue = event.currentTarget.value;
-    setPageSizeInput(rawValue);
-
-    const trimmed = rawValue.trim();
-    if (!trimmed) return;
-
-    const parsed = Number(trimmed);
-    if (!Number.isFinite(parsed)) return;
-
-    const rounded = Math.round(parsed);
-    if (rounded < MIN_CARD_PAGE_SIZE || rounded > MAX_CARD_PAGE_SIZE) return;
-
-    setPageSize(rounded);
-    setPage(1);
-  };
 
   const handleHeaderRefresh = useCallback(async () => {
     await Promise.all([loadFiles(), loadKeyStats(), loadExcluded(), loadModelAlias()]);
@@ -237,18 +228,43 @@ export function AuthFilesPage() {
     return counts;
   }, [files]);
 
+  const quotaSearchTextByFile = useMemo(() => {
+    const map = new Map<string, string>();
+
+    files.forEach((file) => {
+      const provider = resolveAuthProvider(file);
+      const quotaState =
+        provider === 'antigravity'
+          ? antigravityQuota[file.name]
+          : provider === 'codex'
+            ? codexQuota[file.name]
+            : provider === 'gemini-cli'
+              ? geminiCliQuota[file.name]
+              : undefined;
+      if (!quotaState) return;
+      const text = buildQuotaSearchText(quotaState).toLowerCase();
+      if (text) {
+        map.set(file.name, text);
+      }
+    });
+
+    return map;
+  }, [files, antigravityQuota, codexQuota, geminiCliQuota]);
+
   const filtered = useMemo(() => {
     return files.filter((item) => {
       const matchType = filter === 'all' || item.type === filter;
       const term = search.trim().toLowerCase();
+      const quotaText = quotaSearchTextByFile.get(item.name) || '';
       const matchSearch =
         !term ||
         item.name.toLowerCase().includes(term) ||
         (item.type || '').toString().toLowerCase().includes(term) ||
-        (item.provider || '').toString().toLowerCase().includes(term);
+        (item.provider || '').toString().toLowerCase().includes(term) ||
+        quotaText.includes(term);
       return matchType && matchSearch;
     });
-  }, [files, filter, search]);
+  }, [files, filter, search, quotaSearchTextByFile]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const currentPage = Math.min(page, totalPages);
@@ -475,20 +491,20 @@ export function AuthFilesPage() {
             </div>
             <div className={styles.filterItem}>
               <label>{t('auth_files.page_size_label')}</label>
-              <input
+              <Select
+                value={String(pageSize)}
                 className={styles.pageSizeSelect}
-                type="number"
-                min={MIN_CARD_PAGE_SIZE}
-                max={MAX_CARD_PAGE_SIZE}
-                step={1}
-                value={pageSizeInput}
-                onChange={handlePageSizeChange}
-                onBlur={(e) => commitPageSizeInput(e.currentTarget.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.currentTarget.blur();
-                  }
+                options={PAGE_SIZE_OPTIONS.map((size) => ({
+                  value: String(size),
+                  label: String(size)
+                }))}
+                onChange={(value) => {
+                  const next = normalizePageSizeOption(value);
+                  setPageSize(next);
+                  setPage(1);
                 }}
+                ariaLabel={t('auth_files.page_size_label')}
+                fullWidth={false}
               />
             </div>
           </div>

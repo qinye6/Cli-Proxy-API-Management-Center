@@ -41,6 +41,22 @@
   }
 }
 
+.pageSizeControl {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-xs;
+}
+
+.pageSizeLabel {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.pageSizeSelectWrap {
+  min-width: 86px;
+}
+
 .titleWrapper {
   display: flex;
   align-items: center;
@@ -89,6 +105,79 @@
   }
 }
 
+.refreshProgressPanel {
+  margin-bottom: $spacing-md;
+  padding: $spacing-sm;
+  border: 1px solid var(--border-color);
+  border-radius: $radius-md;
+  background-color: var(--bg-secondary);
+}
+
+.refreshProgressHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: $spacing-sm;
+  margin-bottom: $spacing-xs;
+  flex-wrap: wrap;
+}
+
+.refreshProgressTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.refreshProgressStats {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.refreshProgressBar {
+  height: 8px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--bg-tertiary);
+}
+
+.refreshProgressBarFill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--primary-color), var(--success-color, #22c55e));
+  transition: width 0.2s ease;
+}
+
+.refreshProgressMeta {
+  margin-top: $spacing-xs;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.refreshProgressActions {
+  margin-top: $spacing-sm;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.refreshScopeModalBody {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-sm;
+}
+
+.refreshScopeModalDesc {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.refreshScopeModalFooter {
+  display: flex;
+  gap: $spacing-sm;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
 .statsInfo {
   padding: 8px 12px;
   background-color: var(--bg-secondary);
@@ -108,7 +197,7 @@
 .geminiCliGrid {
   display: grid;
   gap: $spacing-md;
-  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
 
   @include mobile {
     grid-template-columns: 1fr;
@@ -175,23 +264,23 @@
 .quotaSection {
   display: flex;
   flex-direction: column;
-  gap: $spacing-sm;
-  padding-top: $spacing-sm;
-  margin-top: $spacing-xs;
+  gap: $spacing-xs;
+  padding-top: $spacing-xs;
+  margin-top: 2px;
   border-top: 1px dashed var(--border-color);
 }
 
 .quotaRow {
   display: flex;
   flex-direction: column;
-  gap: $spacing-xs;
+  gap: 4px;
 }
 
 .quotaRowHeader {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: $spacing-sm;
+  gap: $spacing-xs;
   min-width: 0;
 
   @include mobile {
@@ -201,7 +290,7 @@
 }
 
 .quotaModel {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--text-primary);
   white-space: nowrap;
@@ -216,7 +305,7 @@
 }
 
 .quotaBar {
-  height: 8px;
+  height: 6px;
   background-color: var(--bg-tertiary);
   border-radius: 999px;
   overflow: hidden;
@@ -243,8 +332,8 @@
 .quotaMeta {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 12px;
+  gap: 6px;
+  font-size: 11px;
   color: var(--text-secondary);
   white-space: nowrap;
 
@@ -267,19 +356,19 @@
 }
 
 .quotaMessage {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-tertiary);
   text-align: center;
-  padding: $spacing-sm 0;
+  padding: 6px 0;
 }
 
 .quotaError {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--danger-color);
   background-color: rgba($error-color, 0.08);
   border: 1px solid var(--danger-color);
   border-radius: $radius-sm;
-  padding: $spacing-xs $spacing-sm;
+  padding: 6px 8px;
 }
 
 .quotaWarning {
@@ -294,8 +383,8 @@
 .codexPlan {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 12px;
+  gap: 4px;
+  font-size: 11px;
   color: var(--text-secondary);
 }
 
@@ -313,10 +402,10 @@
   background-color: var(--bg-primary);
   border: 1px solid var(--border-color);
   border-radius: $radius-lg;
-  padding: $spacing-md;
+  padding: 10px;
   display: flex;
   flex-direction: column;
-  gap: $spacing-sm;
+  gap: 6px;
   transition: transform $transition-fast, box-shadow $transition-fast, border-color $transition-fast;
 
   &:hover {
@@ -329,25 +418,29 @@
 .cardHeader {
   display: flex;
   align-items: center;
-  gap: $spacing-sm;
-  min-height: 28px;
+  gap: 6px;
+  min-height: 24px;
 }
 
 .typeBadge {
-  padding: 4px 10px;
+  padding: 2px 8px;
   border-radius: 12px;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   white-space: nowrap;
   flex-shrink: 0;
 }
 
 .fileName {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--text-primary);
-  word-break: break-all;
-  line-height: 1.4;
+  line-height: 1.25;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .pagination {

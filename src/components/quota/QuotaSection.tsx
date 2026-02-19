@@ -7,12 +7,15 @@ import { useTranslation } from 'react-i18next';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { Input } from '@/components/ui/Input';
+import { Modal } from '@/components/ui/Modal';
+import { Select } from '@/components/ui/Select';
 import { triggerHeaderRefresh } from '@/hooks/useHeaderRefresh';
-import { useQuotaStore, useThemeStore } from '@/stores';
+import { useNotificationStore, useQuotaStore, useThemeStore } from '@/stores';
 import type { AuthFileItem, ResolvedTheme } from '@/types';
 import { QuotaCard } from './QuotaCard';
 import type { QuotaStatusState } from './QuotaCard';
-import { useQuotaLoader } from './useQuotaLoader';
+import { useQuotaLoader, type QuotaLoadProgress } from './useQuotaLoader';
 import type { QuotaConfig } from './quotaConfigs';
 import { useGridColumns } from './useGridColumns';
 import { IconRefreshCw } from '@/components/ui/icons';
@@ -23,9 +26,18 @@ type QuotaUpdater<T> = T | ((prev: T) => T);
 type QuotaSetter<T> = (updater: QuotaUpdater<T>) => void;
 
 type ViewMode = 'paged' | 'all';
+type RefreshScope = 'page' | 'all';
 
-const MAX_ITEMS_PER_PAGE = 25;
-const MAX_SHOW_ALL_THRESHOLD = 30;
+interface PendingQuotaRefreshRequest {
+  scope: RefreshScope;
+  concurrency: number;
+}
+
+const MAX_SHOW_ALL_THRESHOLD = 500;
+const PAGE_SIZE_OPTIONS = [10, 50, 100, 200, 500, 1000] as const;
+const DEFAULT_PAGE_SIZE = 10;
+const DEFAULT_REFRESH_CONCURRENCY = 10;
+const MAX_REFRESH_CONCURRENCY = 1000;
 
 interface QuotaPaginationState<T> {
   pageSize: number;
@@ -104,15 +116,22 @@ export function QuotaSection<TState extends QuotaStatusState, TData>({
   disabled
 }: QuotaSectionProps<TState, TData>) {
   const { t } = useTranslation();
+  const showNotification = useNotificationStore((state) => state.showNotification);
   const resolvedTheme: ResolvedTheme = useThemeStore((state) => state.resolvedTheme);
   const setQuota = useQuotaStore((state) => state[config.storeSetter]) as QuotaSetter<
     Record<string, TState>
   >;
 
-  /* Removed useRef */
-  const [columns, gridRef] = useGridColumns(380); // Min card width 380px matches SCSS
+  const [, gridRef] = useGridColumns(220); // Keep in sync with QuotaPage.module.scss grid min width
   const [viewMode, setViewMode] = useState<ViewMode>('paged');
+  const [pageSizeOption, setPageSizeOption] = useState<number>(DEFAULT_PAGE_SIZE);
   const [showTooManyWarning, setShowTooManyWarning] = useState(false);
+  const [refreshModalOpen, setRefreshModalOpen] = useState(false);
+  const [refreshConcurrencyInput, setRefreshConcurrencyInput] = useState(
+    String(DEFAULT_REFRESH_CONCURRENCY)
+  );
+  const [refreshConcurrencyError, setRefreshConcurrencyError] = useState('');
+  const [refreshProgress, setRefreshProgress] = useState<QuotaLoadProgress | null>(null);
 
   const filteredFiles = useMemo(() => files.filter((file) => config.filterFn(file)), [
     files,
@@ -149,40 +168,82 @@ export function QuotaSection<TState extends QuotaStatusState, TData>({
     };
   }, [showAllAllowed, viewMode]);
 
-  // Update page size based on view mode and columns
+  // Update page size based on view mode and user selection
   useEffect(() => {
     if (effectiveViewMode === 'all') {
       setPageSize(Math.max(1, filteredFiles.length));
     } else {
-      // Paged mode: 3 rows * columns, capped to avoid oversized pages.
-      setPageSize(Math.min(columns * 3, MAX_ITEMS_PER_PAGE));
+      setPageSize(pageSizeOption);
     }
-  }, [effectiveViewMode, columns, filteredFiles.length, setPageSize]);
+  }, [effectiveViewMode, filteredFiles.length, pageSizeOption, setPageSize]);
 
   const { quota, loadQuota } = useQuotaLoader(config);
 
-  const pendingQuotaRefreshRef = useRef(false);
+  const pendingQuotaRefreshRef = useRef<PendingQuotaRefreshRequest | null>(null);
+  const stopRefreshRef = useRef(false);
   const prevFilesLoadingRef = useRef(loading);
 
-  const handleRefresh = useCallback(() => {
-    pendingQuotaRefreshRef.current = true;
-    void triggerHeaderRefresh();
+  const parseRefreshConcurrency = useCallback((): number | null => {
+    const parsed = Number.parseInt(refreshConcurrencyInput.trim(), 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      setRefreshConcurrencyError(t('quota_management.refresh_concurrency_invalid'));
+      return null;
+    }
+    setRefreshConcurrencyError('');
+    return Math.min(parsed, MAX_REFRESH_CONCURRENCY);
+  }, [refreshConcurrencyInput, t]);
+
+  const handleOpenRefreshModal = useCallback(() => {
+    setRefreshConcurrencyError('');
+    setRefreshModalOpen(true);
   }, []);
+
+  const handleStopRefresh = useCallback(() => {
+    stopRefreshRef.current = true;
+  }, []);
+
+  const handleStartRefresh = useCallback(
+    (scope: RefreshScope) => {
+      const concurrency = parseRefreshConcurrency();
+      if (!concurrency) return;
+
+      pendingQuotaRefreshRef.current = { scope, concurrency };
+      stopRefreshRef.current = false;
+      setRefreshProgress(null);
+      setRefreshModalOpen(false);
+      void triggerHeaderRefresh();
+    },
+    [parseRefreshConcurrency]
+  );
 
   useEffect(() => {
     const wasLoading = prevFilesLoadingRef.current;
     prevFilesLoadingRef.current = loading;
 
-    if (!pendingQuotaRefreshRef.current) return;
+    const pendingRefresh = pendingQuotaRefreshRef.current;
+    if (!pendingRefresh) return;
     if (loading) return;
     if (!wasLoading) return;
 
-    pendingQuotaRefreshRef.current = false;
-    const scope = effectiveViewMode === 'all' ? 'all' : 'page';
-    const targets = effectiveViewMode === 'all' ? filteredFiles : pageItems;
+    pendingQuotaRefreshRef.current = null;
+    const scope = pendingRefresh.scope;
+    const targets = scope === 'all' ? filteredFiles : pageItems;
+
     if (targets.length === 0) return;
-    loadQuota(targets, scope, setLoading);
-  }, [loading, effectiveViewMode, filteredFiles, pageItems, loadQuota, setLoading]);
+
+    void (async () => {
+      await loadQuota(targets, scope, setLoading, {
+        concurrency: pendingRefresh.concurrency,
+        shouldStop: () => stopRefreshRef.current,
+        onProgress: (progress) => setRefreshProgress(progress)
+      });
+
+      if (stopRefreshRef.current) {
+        showNotification(t('quota_management.refresh_stopped'), 'warning');
+      }
+      stopRefreshRef.current = false;
+    })();
+  }, [loading, filteredFiles, pageItems, loadQuota, setLoading, showNotification, t]);
 
   useEffect(() => {
     if (loading) return;
@@ -213,13 +274,45 @@ export function QuotaSection<TState extends QuotaStatusState, TData>({
     </div>
   );
 
-  const isRefreshing = sectionLoading || loading;
+  const refreshRunning = Boolean(
+    refreshProgress &&
+      refreshProgress.total > 0 &&
+      refreshProgress.completed < refreshProgress.total &&
+      !refreshProgress.stopped
+  );
+  const refreshPercent =
+    refreshProgress && refreshProgress.total > 0
+      ? Math.round((refreshProgress.completed / refreshProgress.total) * 100)
+      : 0;
+  const pageSizeOptions = PAGE_SIZE_OPTIONS.map((value) => ({
+    value: String(value),
+    label: String(value)
+  }));
+
+  const isRefreshing = sectionLoading || loading || refreshRunning;
 
   return (
-    <Card
+    <>
+      <Card
       title={titleNode}
       extra={
         <div className={styles.headerActions}>
+          <div className={styles.pageSizeControl}>
+            <span className={styles.pageSizeLabel}>{t('quota_management.page_size_label')}</span>
+            <Select
+              value={String(pageSizeOption)}
+              options={pageSizeOptions}
+              onChange={(value) => {
+                const parsed = Number.parseInt(value, 10);
+                if (!Number.isFinite(parsed)) return;
+                setPageSizeOption(parsed);
+              }}
+              ariaLabel={t('quota_management.page_size_label')}
+              className={styles.pageSizeSelectWrap}
+              fullWidth={false}
+              disabled={effectiveViewMode !== 'paged'}
+            />
+          </div>
           <div className={styles.viewModeToggle}>
             <Button
               variant={effectiveViewMode === 'paged' ? 'primary' : 'secondary'}
@@ -245,7 +338,7 @@ export function QuotaSection<TState extends QuotaStatusState, TData>({
           <Button
             variant="secondary"
             size="sm"
-            onClick={handleRefresh}
+            onClick={handleOpenRefreshModal}
             disabled={disabled || isRefreshing}
             loading={isRefreshing}
             title={t('quota_management.refresh_files_and_quota')}
@@ -256,6 +349,41 @@ export function QuotaSection<TState extends QuotaStatusState, TData>({
         </div>
       }
     >
+      {refreshProgress && refreshProgress.total > 0 && (
+        <div className={styles.refreshProgressPanel}>
+          <div className={styles.refreshProgressHeader}>
+            <span className={styles.refreshProgressTitle}>
+              {refreshRunning
+                ? t('quota_management.refreshing')
+                : refreshProgress.stopped
+                  ? t('quota_management.refresh_stopped')
+                  : t('quota_management.refresh_completed')}
+            </span>
+            <span className={styles.refreshProgressStats}>
+              {t('quota_management.refresh_progress', {
+                completed: refreshProgress.completed,
+                total: refreshProgress.total
+              })}
+            </span>
+          </div>
+          <div className={styles.refreshProgressBar}>
+            <div className={styles.refreshProgressBarFill} style={{ width: `${refreshPercent}%` }} />
+          </div>
+          <div className={styles.refreshProgressMeta}>
+            {t('quota_management.refresh_progress_detail', {
+              success: refreshProgress.success,
+              failed: refreshProgress.failed
+            })}
+          </div>
+          {refreshRunning && (
+            <div className={styles.refreshProgressActions}>
+              <Button variant="danger" size="sm" onClick={handleStopRefresh}>
+                {t('quota_management.refresh_stop')}
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
       {filteredFiles.length === 0 ? (
         <EmptyState
           title={t(`${config.i18nPrefix}.empty_title`)}
@@ -316,6 +444,43 @@ export function QuotaSection<TState extends QuotaStatusState, TData>({
           </div>
         </div>
       )}
-    </Card>
+      </Card>
+
+      <Modal
+        open={refreshModalOpen}
+        onClose={() => setRefreshModalOpen(false)}
+        title={t('quota_management.refresh_scope_modal_title')}
+        footer={
+          <div className={styles.refreshScopeModalFooter}>
+            <Button variant="secondary" onClick={() => setRefreshModalOpen(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button variant="secondary" onClick={() => handleStartRefresh('page')}>
+              {t('quota_management.refresh_scope_current_page')}
+            </Button>
+            <Button onClick={() => handleStartRefresh('all')}>
+              {t('quota_management.refresh_scope_all')}
+            </Button>
+          </div>
+        }
+      >
+        <div className={styles.refreshScopeModalBody}>
+          <p className={styles.refreshScopeModalDesc}>
+            {t('quota_management.refresh_scope_modal_desc')}
+          </p>
+          <Input
+            label={t('quota_management.refresh_concurrency_label')}
+            value={refreshConcurrencyInput}
+            onChange={(event) => setRefreshConcurrencyInput(event.target.value)}
+            error={refreshConcurrencyError || undefined}
+            hint={t('quota_management.refresh_concurrency_hint', {
+              max: MAX_REFRESH_CONCURRENCY
+            })}
+            inputMode="numeric"
+            pattern="[0-9]*"
+          />
+        </div>
+      </Modal>
+    </>
   );
 }

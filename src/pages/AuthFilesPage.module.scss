@@ -162,83 +162,32 @@
 }
 
 .pageSizeSelect {
-  padding: 8px 12px;
-  border: 1px solid var(--border-color);
-  border-radius: $radius-md;
-  background-color: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: 14px;
-  cursor: text;
-  height: 38px;
-  box-sizing: border-box;
+  width: 104px;
+  min-width: 104px;
 
-  &:focus {
-    outline: none;
-    border-color: var(--primary-color);
+  > button {
+    height: 38px;
+    padding: 0 10px;
+    font-size: 13px;
+    box-shadow: none;
   }
 }
 
 // 卡片网格
-.fileGrid {
-  display: grid;
-  gap: $spacing-md;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-
-  @include tablet {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  @include mobile {
-    grid-template-columns: 1fr;
-  }
-}
-
-.fileGridQuotaManaged {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-
-  @include tablet {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  @include mobile {
-    grid-template-columns: 1fr;
-  }
-}
-
-.antigravityGrid {
-  display: grid;
-  gap: $spacing-md;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-
-  @include tablet {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  @include mobile {
-    grid-template-columns: 1fr;
-  }
-}
-
-.codexGrid {
-  display: grid;
-  gap: $spacing-md;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-
-  @include tablet {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  @include mobile {
-    grid-template-columns: 1fr;
-  }
-}
-
+.fileGrid,
+.fileGridQuotaManaged,
+.antigravityGrid,
+.codexGrid,
 .geminiCliGrid {
   display: grid;
-  gap: $spacing-md;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 
-  @include tablet {
+  @media (max-width: 980px) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  @media (max-width: 860px) {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -482,17 +431,17 @@
   background-color: var(--bg-primary);
   border: 1px solid var(--border-color);
   border-radius: $radius-lg;
-  padding: $spacing-md;
+  padding: 12px;
   display: flex;
   flex-direction: column;
-  gap: $spacing-sm;
+  gap: 6px;
   transition:
     transform $transition-fast,
     box-shadow $transition-fast,
     border-color $transition-fast;
 
   &:hover {
-    transform: translateY(-2px);
+    transform: translateY(-1px);
     box-shadow: $shadow-md;
     border-color: rgba(37, 99, 235, 0.2);
   }
@@ -520,13 +469,13 @@
 .fileCardLayout {
   display: flex;
   align-items: stretch;
-  gap: $spacing-md;
+  gap: 10px;
 }
 
 .fileCardMain {
   display: flex;
   flex-direction: column;
-  gap: $spacing-sm;
+  gap: 6px;
   flex: 1;
   min-width: 0;
 }
@@ -534,16 +483,17 @@
 .cardHeader {
   display: flex;
   align-items: center;
-  gap: $spacing-sm;
-  min-height: 28px;
+  gap: 6px;
+  min-height: 24px;
+  min-width: 0;
 }
 
 .selectionToggle {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   margin: 0;
   flex-shrink: 0;
-  border-radius: 7px;
+  border-radius: 6px;
   border: 1px solid var(--border-color);
   background: color-mix(in srgb, var(--bg-secondary) 92%, transparent);
   color: var(--primary-contrast, #fff);
@@ -578,29 +528,33 @@
 }
 
 .typeBadge {
-  padding: 4px 10px;
-  border-radius: 12px;
-  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 10px;
+  font-size: 11px;
   font-weight: 600;
   white-space: nowrap;
   flex-shrink: 0;
 }
 
 .fileName {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--text-primary);
-  word-break: break-all;
-  line-height: 1.4;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
 }
 
 .cardMeta {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  font-size: 12px;
+  gap: 1px;
+  font-size: 11px;
   color: var(--text-secondary);
-  padding: $spacing-xs 0;
+  padding: 6px 0;
   border-top: 1px solid var(--border-color);
   border-bottom: 1px solid var(--border-color);
 }
@@ -608,20 +562,20 @@
 .cardStats {
   display: flex;
   flex-wrap: wrap;
-  gap: $spacing-sm;
-  padding-top: $spacing-xs;
-  margin-top: $spacing-xs;
+  gap: 6px;
+  padding-top: 4px;
+  margin-top: 2px;
 }
 
 .statPill {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
+  gap: 4px;
+  padding: 4px 8px;
   border-radius: 999px;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
-  line-height: 1.1;
+  line-height: 1;
   border: 1px solid transparent;
   background-color: var(--bg-tertiary);
   color: var(--text-primary);
@@ -644,16 +598,16 @@
 .statusBar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 4px 0;
-  max-width: 280px;
+  gap: 6px;
+  padding: 2px 0;
+  max-width: none;
 }
 
 .statusBlocks {
   display: flex;
   gap: 2px;
   flex: 1;
-  min-width: 180px;
+  min-width: 120px;
   position: relative;
 }
 
@@ -877,24 +831,24 @@
 
 .cardActions {
   display: flex;
-  gap: $spacing-xs;
+  gap: 4px;
   justify-content: flex-end;
   align-items: center;
   margin-top: auto;
-  padding-top: $spacing-sm;
+  padding-top: 6px;
 }
 
 .statusToggle {
   display: flex;
   align-items: center;
   flex-shrink: 0;
-  margin-left: $spacing-sm;
+  margin-left: 6px;
 }
 
 .iconButton:global(.btn.btn-sm) {
-  width: 34px;
-  height: 34px;
-  min-width: 34px;
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
   padding: 0;
   box-sizing: border-box;
   border-radius: 6px;
@@ -906,10 +860,10 @@
 }
 
 .virtualBadge {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-secondary);
   background-color: var(--bg-tertiary);
-  padding: 4px 10px;
+  padding: 3px 8px;
   border-radius: $radius-sm;
   font-style: italic;
   display: inline-flex;

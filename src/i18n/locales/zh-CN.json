@@ -1107,7 +1107,21 @@
     "title": "配额管理",
     "description": "集中查看 OAuth 额度与剩余情况",
     "refresh_files": "刷新认证文件",
-    "refresh_files_and_quota": "刷新认证文件&额度"
+    "refresh_files_and_quota": "刷新认证文件&额度",
+    "page_size_label": "每页数量",
+    "refresh_scope_modal_title": "刷新额度",
+    "refresh_scope_modal_desc": "请选择刷新范围，并设置并发请求数。",
+    "refresh_scope_current_page": "刷新当前页",
+    "refresh_scope_all": "刷新所有",
+    "refresh_concurrency_label": "并发数量",
+    "refresh_concurrency_hint": "请输入 1-{{max}} 之间的整数",
+    "refresh_concurrency_invalid": "并发数量必须是大于 0 的整数",
+    "refresh_progress": "进度 {{completed}} / {{total}}",
+    "refresh_progress_detail": "成功 {{success}}，失败 {{failed}}",
+    "refreshing": "刷新中...",
+    "refresh_completed": "刷新完成",
+    "refresh_stop": "停止",
+    "refresh_stopped": "已停止后续请求调度"
   },
   "system_info": {
     "title": "管理中心信息",

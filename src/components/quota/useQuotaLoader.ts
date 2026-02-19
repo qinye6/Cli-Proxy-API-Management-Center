@@ -15,6 +15,20 @@ type QuotaUpdater<T> = T | ((prev: T) => T);
 
 type QuotaSetter<T> = (updater: QuotaUpdater<T>) => void;
 
+export interface QuotaLoadProgress {
+  total: number;
+  completed: number;
+  success: number;
+  failed: number;
+  stopped: boolean;
+}
+
+interface LoadQuotaOptions {
+  concurrency?: number;
+  shouldStop?: () => boolean;
+  onProgress?: (progress: QuotaLoadProgress) => void;
+}
+
 interface LoadQuotaResult<TData> {
   name: string;
   status: 'success' | 'error';
@@ -37,7 +51,8 @@ export function useQuotaLoader<TState, TData>(config: QuotaConfig<TState, TData>
     async (
       targets: AuthFileItem[],
       scope: QuotaScope,
-      setLoading: (loading: boolean, scope?: QuotaScope | null) => void
+      setLoading: (loading: boolean, scope?: QuotaScope | null) => void,
+      options: LoadQuotaOptions = {}
     ) => {
       if (loadingRef.current) return;
       loadingRef.current = true;
@@ -45,45 +60,93 @@ export function useQuotaLoader<TState, TData>(config: QuotaConfig<TState, TData>
       setLoading(true, scope);
 
       try {
-        if (targets.length === 0) return;
+        const total = targets.length;
+        let completed = 0;
+        let success = 0;
+        let failed = 0;
+        let nextIndex = 0;
+        let stopped = false;
 
-        setQuota((prev) => {
-          const nextState = { ...prev };
-          targets.forEach((file) => {
-            nextState[file.name] = config.buildLoadingState();
+        const emitProgress = () => {
+          options.onProgress?.({
+            total,
+            completed,
+            success,
+            failed,
+            stopped
           });
-          return nextState;
-        });
+        };
 
-        const results = await Promise.all(
-          targets.map(async (file): Promise<LoadQuotaResult<TData>> => {
+        emitProgress();
+
+        if (total === 0) return;
+
+        const concurrencyRaw = Number(options.concurrency ?? total);
+        const concurrency = Number.isFinite(concurrencyRaw)
+          ? Math.max(1, Math.min(total, Math.floor(concurrencyRaw)))
+          : 1;
+
+        const shouldStop = () => {
+          if (requestId !== requestIdRef.current) return true;
+          if (!options.shouldStop) return false;
+          return options.shouldStop();
+        };
+
+        const workers = Array.from({ length: concurrency }, async () => {
+          while (true) {
+            if (shouldStop()) {
+              stopped = completed < total;
+              return;
+            }
+
+            const currentIndex = nextIndex;
+            if (currentIndex >= total) return;
+            nextIndex += 1;
+            const file = targets[currentIndex];
+
+            setQuota((prev) => ({
+              ...prev,
+              [file.name]: config.buildLoadingState()
+            }));
+
+            let result: LoadQuotaResult<TData>;
             try {
               const data = await config.fetchQuota(file, t);
-              return { name: file.name, status: 'success', data };
+              result = { name: file.name, status: 'success', data };
             } catch (err: unknown) {
               const message = err instanceof Error ? err.message : t('common.unknown_error');
               const errorStatus = getStatusFromError(err);
-              return { name: file.name, status: 'error', error: message, errorStatus };
+              result = { name: file.name, status: 'error', error: message, errorStatus };
             }
-          })
-        );
 
-        if (requestId !== requestIdRef.current) return;
+            if (requestId !== requestIdRef.current) return;
 
-        setQuota((prev) => {
-          const nextState = { ...prev };
-          results.forEach((result) => {
             if (result.status === 'success') {
-              nextState[result.name] = config.buildSuccessState(result.data as TData);
+              success += 1;
+              setQuota((prev) => ({
+                ...prev,
+                [result.name]: config.buildSuccessState(result.data as TData)
+              }));
             } else {
-              nextState[result.name] = config.buildErrorState(
-                result.error || t('common.unknown_error'),
-                result.errorStatus
-              );
+              failed += 1;
+              setQuota((prev) => ({
+                ...prev,
+                [result.name]: config.buildErrorState(
+                  result.error || t('common.unknown_error'),
+                  result.errorStatus
+                )
+              }));
             }
-          });
-          return nextState;
+
+            completed += 1;
+            stopped = shouldStop() && completed < total;
+            emitProgress();
+          }
         });
+
+        await Promise.all(workers);
+        stopped = stopped || (options.shouldStop?.() === true && completed < total);
+        emitProgress();
       } finally {
         if (requestId === requestIdRef.current) {
           setLoading(false);

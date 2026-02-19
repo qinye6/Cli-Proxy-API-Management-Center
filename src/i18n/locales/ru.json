@@ -1112,7 +1112,21 @@
     "title": "Управление квотами",
     "description": "Следите за статусом квот OAuth для учётных данных Antigravity, Codex и Gemini CLI.",
     "refresh_files": "Обновить файлы авторизации",
-    "refresh_files_and_quota": "Обновить файлы и квоты"
+    "refresh_files_and_quota": "Обновить файлы и квоты",
+    "page_size_label": "Размер страницы",
+    "refresh_scope_modal_title": "Обновление квот",
+    "refresh_scope_modal_desc": "Выберите область обновления и задайте параллелизм запросов.",
+    "refresh_scope_current_page": "Обновить текущую страницу",
+    "refresh_scope_all": "Обновить все",
+    "refresh_concurrency_label": "Параллелизм",
+    "refresh_concurrency_hint": "Введите целое число от 1 до {{max}}",
+    "refresh_concurrency_invalid": "Параллелизм должен быть целым числом больше 0",
+    "refresh_progress": "Прогресс {{completed}} / {{total}}",
+    "refresh_progress_detail": "Успешно {{success}}, Ошибки {{failed}}",
+    "refreshing": "Обновление...",
+    "refresh_completed": "Обновление завершено",
+    "refresh_stop": "Остановить",
+    "refresh_stopped": "Постановка оставшихся запросов остановлена"
   },
   "system_info": {
     "title": "Информация о центре управления",
