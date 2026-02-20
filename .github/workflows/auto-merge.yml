@@ -1,0 +1,537 @@
+name: Auto Merge Upstream Repos
+
+on:
+  schedule:
+    # 每天 UTC 04:00（北京时间 12:00）执行
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+    inputs:
+      force_merge:
+        description: '强制重新合并（忽略缓存的 commit SHA）'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+
+env:
+  # ========== 上游仓库配置 ==========
+  # 仓库1: fatkun 版（作为 merge 的 base）
+  UPSTREAM_BASE_REPO: "https://github.com/fatkun/Cli-Proxy-API-Management-Center.git"
+  UPSTREAM_BASE_BRANCH: "main"
+  # 仓库2: kongkongyo 版（含监控中心等增强功能，merge 进来以保留新增内容）
+  UPSTREAM_FEATURE_REPO: "https://github.com/kongkongyo/Cli-Proxy-API-Management-Center.git"
+  UPSTREAM_FEATURE_BRANCH: "main"
+  # 本仓库的目标分支
+  TARGET_BRANCH: "main"
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  merge-upstream:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout this repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TARGET_BRANCH }}
+          fetch-depth: 0
+          # 使用 PAT 以获得推送 workflow 文件的权限
+          # 如果不需要推送 workflow 文件，可改为 ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remotes
+        run: |
+          git remote add upstream-base "$UPSTREAM_BASE_REPO" 2>/dev/null || true
+          git remote add upstream-feature "$UPSTREAM_FEATURE_REPO" 2>/dev/null || true
+
+      - name: Fetch upstream branches
+        run: |
+          echo "::group::Fetching upstream-base (fatkun)"
+          git fetch upstream-base "$UPSTREAM_BASE_BRANCH" --no-tags
+          echo "::endgroup::"
+
+          echo "::group::Fetching upstream-feature (kongkongyo)"
+          git fetch upstream-feature "$UPSTREAM_FEATURE_BRANCH" --no-tags
+          echo "::endgroup::"
+
+      - name: Check for updates
+        id: check
+        run: |
+          BASE_SHA=$(git rev-parse "upstream-base/$UPSTREAM_BASE_BRANCH")
+          FEATURE_SHA=$(git rev-parse "upstream-feature/$UPSTREAM_FEATURE_BRANCH")
+
+          echo "base_sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
+          echo "feature_sha=$FEATURE_SHA" >> "$GITHUB_OUTPUT"
+
+          echo "📌 Base upstream (fatkun) SHA:    $BASE_SHA"
+          echo "📌 Feature upstream (kongkongyo) SHA: $FEATURE_SHA"
+
+          # 读取上次成功合并时记录的 SHA
+          LAST_BASE=""
+          LAST_FEATURE=""
+          if [ -f ".merge-state/last-base-sha" ]; then
+            LAST_BASE=$(cat ".merge-state/last-base-sha")
+          fi
+          if [ -f ".merge-state/last-feature-sha" ]; then
+            LAST_FEATURE=$(cat ".merge-state/last-feature-sha")
+          fi
+
+          echo "📌 Last merged base SHA:    ${LAST_BASE:-none}"
+          echo "📌 Last merged feature SHA: ${LAST_FEATURE:-none}"
+
+          FORCE="${{ github.event.inputs.force_merge || 'false' }}"
+
+          if [ "$FORCE" = "true" ]; then
+            echo "⚡ Force merge requested, skipping cache check"
+            echo "needs_merge=true" >> "$GITHUB_OUTPUT"
+          elif [ "$BASE_SHA" = "$LAST_BASE" ] && [ "$FEATURE_SHA" = "$LAST_FEATURE" ]; then
+            echo "✅ No changes detected in either upstream. Skipping merge."
+            echo "needs_merge=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "🔄 Changes detected, proceeding with merge."
+            echo "needs_merge=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Perform merge
+        id: merge
+        if: steps.check.outputs.needs_merge == 'true'
+        run: |
+          set +e  # Don't exit on error
+
+          echo "::group::Step 1 - Reset to base upstream (fatkun)"
+          # 创建临时合并分支，以 fatkun 版为基础
+          MERGE_BRANCH="auto-merge/$(date +%Y%m%d-%H%M%S)"
+          git checkout -b "$MERGE_BRANCH" "upstream-base/$UPSTREAM_BASE_BRANCH"
+          echo "merge_branch=$MERGE_BRANCH" >> "$GITHUB_OUTPUT"
+          echo "::endgroup::"
+
+          echo "::group::Step 2 - Merge feature upstream (kongkongyo)"
+          # 将 kongkongyo 版 merge 进来，这样它的新增内容（监控中心等）会被保留
+          MERGE_OUTPUT=$(git merge "upstream-feature/$UPSTREAM_FEATURE_BRANCH" \
+            --no-edit \
+            --allow-unrelated-histories \
+            -m "chore: auto-merge fatkun + kongkongyo [$(date +%Y-%m-%d)]" 2>&1)
+          MERGE_EXIT=$?
+          echo "$MERGE_OUTPUT"
+          echo "::endgroup::"
+
+          if [ $MERGE_EXIT -eq 0 ]; then
+            echo "✅ Merge succeeded without conflicts!"
+            echo "merge_status=success" >> "$GITHUB_OUTPUT"
+            echo "conflict_files=" >> "$GITHUB_OUTPUT"
+          else
+            echo "⚠️ Merge has conflicts!"
+            echo "merge_status=conflict" >> "$GITHUB_OUTPUT"
+
+            # 获取冲突文件列表
+            CONFLICT_FILES=$(git diff --name-only --diff-filter=U | head -50)
+            echo "Conflicting files:"
+            echo "$CONFLICT_FILES"
+
+            # 存储冲突文件列表（转义换行）
+            CONFLICT_FILES_ESCAPED=$(echo "$CONFLICT_FILES" | tr '\n' '|')
+            echo "conflict_files=$CONFLICT_FILES_ESCAPED" >> "$GITHUB_OUTPUT"
+
+            # 中止合并，为后续创建 PR 做准备
+            git merge --abort
+          fi
+
+      # ========== 构建 management.html（在合并分支上执行） ==========
+      - name: Setup Node.js
+        if: steps.merge.outputs.merge_status == 'success'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        if: steps.merge.outputs.merge_status == 'success'
+        run: npm ci
+
+      - name: Build management.html
+        id: build
+        if: steps.merge.outputs.merge_status == 'success'
+        run: |
+          npm run build
+          if [ -f dist/index.html ]; then
+            mv dist/index.html dist/management.html
+            # 将构建产物复制到临时目录，供 push 后上传 Release
+            mkdir -p /tmp/build-artifacts
+            cp dist/management.html /tmp/build-artifacts/
+            echo "build_success=true" >> "$GITHUB_OUTPUT"
+            echo "✅ Build successful! management.html generated."
+            ls -lh dist/management.html
+          else
+            echo "build_success=false" >> "$GITHUB_OUTPUT"
+            echo "❌ Build failed: dist/index.html not found"
+          fi
+
+      # ========== 推送合并结果（保留自定义文件） ==========
+      - name: Push merged result
+        if: steps.merge.outputs.merge_status == 'success'
+        run: |
+          MERGE_BRANCH="${{ steps.merge.outputs.merge_branch }}"
+
+          # ---------- 备份本仓库的自定义文件 ----------
+          # 这些文件不存在于任何上游仓库中，git reset --hard 会删除它们
+          echo "::group::Backup custom files"
+          BACKUP_DIR="/tmp/custom-files-backup"
+          mkdir -p "$BACKUP_DIR"
+
+          # 切换回目标分支，读取自定义文件
+          git checkout "$TARGET_BRANCH"
+
+          # 备份 .github/workflows/
+          if [ -d ".github/workflows" ]; then
+            mkdir -p "$BACKUP_DIR/.github/workflows"
+            cp -r .github/workflows/* "$BACKUP_DIR/.github/workflows/"
+            echo "  ✅ Backed up .github/workflows/"
+          fi
+
+          # 备份 scripts/
+          if [ -d "scripts" ]; then
+            mkdir -p "$BACKUP_DIR/scripts"
+            cp -r scripts/* "$BACKUP_DIR/scripts/"
+            echo "  ✅ Backed up scripts/"
+          fi
+
+          # 备份 .merge-state/
+          if [ -d ".merge-state" ]; then
+            mkdir -p "$BACKUP_DIR/.merge-state"
+            cp -r .merge-state/* "$BACKUP_DIR/.merge-state/"
+            echo "  ✅ Backed up .merge-state/"
+          fi
+
+          echo "::endgroup::"
+
+          # ---------- 重置到合并分支 ----------
+          echo "::group::Reset to merge branch"
+          git reset --hard "$MERGE_BRANCH"
+          echo "::endgroup::"
+
+          # ---------- 恢复自定义文件 ----------
+          echo "::group::Restore custom files"
+
+          # 恢复 .github/workflows/
+          if [ -d "$BACKUP_DIR/.github/workflows" ]; then
+            mkdir -p .github/workflows
+            cp -r "$BACKUP_DIR/.github/workflows/"* .github/workflows/
+            echo "  ✅ Restored .github/workflows/"
+          fi
+
+          # 恢复 scripts/
+          if [ -d "$BACKUP_DIR/scripts" ]; then
+            mkdir -p scripts
+            cp -r "$BACKUP_DIR/scripts/"* scripts/
+            echo "  ✅ Restored scripts/"
+          fi
+
+          # 恢复并更新 .merge-state/
+          mkdir -p .merge-state
+          echo "${{ steps.check.outputs.base_sha }}" > .merge-state/last-base-sha
+          echo "${{ steps.check.outputs.feature_sha }}" > .merge-state/last-feature-sha
+          echo "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > .merge-state/last-merge-time
+          echo "  ✅ Updated .merge-state/"
+
+          echo "::endgroup::"
+
+          # ---------- 提交并推送 ----------
+          git add .github/ scripts/ .merge-state/
+          git commit --amend --no-edit
+
+          git push origin "$TARGET_BRANCH" --force-with-lease
+          echo "✅ Successfully pushed merged code to $TARGET_BRANCH (custom files preserved)"
+
+      # ========== 创建 Release ==========
+      - name: Create auto-merge Release
+        if: steps.build.outputs.build_success == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const today = new Date().toISOString().split('T')[0];
+            const baseSha = '${{ steps.check.outputs.base_sha }}'.substring(0, 8);
+            const featureSha = '${{ steps.check.outputs.feature_sha }}'.substring(0, 8);
+            const tagName = `auto-merge-${today}`;
+
+            // 删除已存在的同名 tag 和 release（如果有）
+            try {
+              const { data: existingRelease } = await github.rest.repos.getReleaseByTag({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag: tagName,
+              });
+              if (existingRelease) {
+                await github.rest.repos.deleteRelease({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  release_id: existingRelease.id,
+                });
+                core.info(`Deleted existing release: ${tagName}`);
+              }
+            } catch (e) {
+              // Release 不存在，正常
+            }
+
+            try {
+              await github.rest.git.deleteRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `tags/${tagName}`,
+              });
+              core.info(`Deleted existing tag: ${tagName}`);
+            } catch (e) {
+              // Tag 不存在，正常
+            }
+
+            // 同时更新 latest-auto-merge tag
+            const latestTag = 'latest-auto-merge';
+            try {
+              const { data: latestRelease } = await github.rest.repos.getReleaseByTag({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag: latestTag,
+              });
+              if (latestRelease) {
+                await github.rest.repos.deleteRelease({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  release_id: latestRelease.id,
+                });
+              }
+            } catch (e) {}
+
+            try {
+              await github.rest.git.deleteRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `tags/${latestTag}`,
+              });
+            } catch (e) {}
+
+            const body = `## 🔀 自动合并构建 (${today})
+
+            此 Release 由 auto-merge workflow 自动生成。
+
+            ### 上游版本
+            - **fatkun 版**: \`${baseSha}\`
+            - **kongkongyo 版**: \`${featureSha}\`
+
+            ### 使用方法
+            1. 下载 \`management.html\`
+            2. 将其放入 CLI Proxy API 的对应目录中替换原文件
+            3. 重启服务即可
+
+            ---
+            *此 Release 由 GitHub Actions 自动创建*`;
+
+            // 创建日期版 Release
+            const { data: release } = await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: tagName,
+              name: `Auto Merge Build ${today}`,
+              body: body,
+              draft: false,
+              prerelease: false,
+              target_commitish: process.env.TARGET_BRANCH,
+            });
+
+            // 从临时目录读取构建产物上传
+            const fileContent = fs.readFileSync('/tmp/build-artifacts/management.html');
+            await github.rest.repos.uploadReleaseAsset({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: release.id,
+              name: 'management.html',
+              data: fileContent,
+            });
+
+            core.info(`Created release: ${tagName} with management.html`);
+
+            // 创建 latest-auto-merge Release（方便直接下载最新版）
+            const { data: latestRel } = await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: latestTag,
+              name: `Latest Auto Merge Build`,
+              body: body,
+              draft: false,
+              prerelease: false,
+              target_commitish: process.env.TARGET_BRANCH,
+            });
+
+            await github.rest.repos.uploadReleaseAsset({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: latestRel.id,
+              name: 'management.html',
+              data: fileContent,
+            });
+
+            core.info(`Created latest release: ${latestTag} with management.html`);
+
+      # ========== 冲突处理：创建 PR ==========
+      - name: Create conflict PR
+        if: steps.merge.outputs.merge_status == 'conflict'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const conflictFiles = '${{ steps.merge.outputs.conflict_files }}'
+              .split('|')
+              .filter(f => f.trim())
+              .map(f => `- \`${f.trim()}\``)
+              .join('\n');
+
+            const baseSha = '${{ steps.check.outputs.base_sha }}'.substring(0, 8);
+            const featureSha = '${{ steps.check.outputs.feature_sha }}'.substring(0, 8);
+            const today = new Date().toISOString().split('T')[0];
+
+            // 检查是否已有未关闭的冲突 PR
+            const { data: existingPRs } = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              head: `${context.repo.owner}:auto-merge/conflict`,
+            });
+
+            if (existingPRs.length > 0) {
+              // 更新现有 PR 的 body
+              const pr = existingPRs[0];
+              await github.rest.pulls.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr.number,
+                body: `## ⚠️ 自动合并冲突 (${today})
+
+            上游仓库自动合并时发现冲突，需要人工解决。
+
+            ### 上游版本
+            - **fatkun 版** (upstream-base): \`${baseSha}\`
+            - **kongkongyo 版** (upstream-feature): \`${featureSha}\`
+
+            ### 冲突文件
+            ${conflictFiles}
+
+            ### 解决方法
+            1. 拉取本分支到本地
+            2. 执行 \`git merge origin/${process.env.TARGET_BRANCH}\`
+            3. 解决所有冲突
+            4. 提交并推送
+            5. 合并此 PR
+
+            ---
+            *此 PR 由 GitHub Actions 自动创建*`,
+              });
+
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                body: `🔄 **更新 (${today})**: 冲突仍然存在。\n\nfatkun 版: \`${baseSha}\`\nkongkongyo 版: \`${featureSha}\`\n\n冲突文件:\n${conflictFiles}`,
+              });
+
+              core.info(`Updated existing conflict PR #${pr.number}`);
+            } else {
+              // 创建冲突分支
+              const { execSync } = require('child_process');
+
+              // 基于 fatkun 版创建分支，然后带冲突标记合并
+              execSync(`git checkout -B auto-merge/conflict upstream-base/${process.env.UPSTREAM_BASE_BRANCH}`, { stdio: 'inherit' });
+              execSync(`git merge upstream-feature/${process.env.UPSTREAM_FEATURE_BRANCH} --no-commit --no-ff || true`, { stdio: 'inherit' });
+
+              // 将所有冲突文件标记为"两边都保留"然后提交
+              execSync('git add -A', { stdio: 'inherit' });
+              execSync(`git commit -m "chore: merge with conflicts for manual resolution [${today}]" --allow-empty`, { stdio: 'inherit' });
+              execSync('git push origin auto-merge/conflict --force', { stdio: 'inherit' });
+
+              // 创建 PR
+              const { data: pr } = await github.rest.pulls.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: `⚠️ 自动合并冲突需要人工处理 [${today}]`,
+                head: 'auto-merge/conflict',
+                base: process.env.TARGET_BRANCH,
+                body: `## ⚠️ 自动合并冲突
+
+            上游仓库自动合并时发现冲突，需要人工解决。
+
+            ### 上游版本
+            - **fatkun 版** (upstream-base): \`${baseSha}\`
+            - **kongkongyo 版** (upstream-feature): \`${featureSha}\`
+
+            ### 冲突文件
+            ${conflictFiles}
+
+            ### 解决方法
+            1. 拉取本分支到本地：
+               \`\`\`bash
+               git fetch origin auto-merge/conflict
+               git checkout auto-merge/conflict
+               \`\`\`
+            2. 重新执行合并并解决冲突：
+               \`\`\`bash
+               git reset --hard upstream-base/${process.env.UPSTREAM_BASE_BRANCH}
+               git merge upstream-feature/${process.env.UPSTREAM_FEATURE_BRANCH}
+               # 解决所有冲突文件
+               git add .
+               git commit
+               \`\`\`
+            3. 推送并合并此 PR
+
+            ---
+            *此 PR 由 GitHub Actions 自动创建*`,
+              });
+
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                labels: ['auto-merge', 'conflict', 'needs-manual-review'],
+              });
+
+              core.info(`Created conflict PR #${pr.number}`);
+            }
+
+      # ========== 运行总结 ==========
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Auto-Merge Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "${{ steps.check.outputs.needs_merge }}" = "false" ]; then
+            echo "✅ **No updates detected** — skipped merge." >> "$GITHUB_STEP_SUMMARY"
+          elif [ "${{ steps.merge.outputs.merge_status }}" = "success" ]; then
+            echo "✅ **Merge successful** — pushed to \`$TARGET_BRANCH\`" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "- fatkun: \`${{ steps.check.outputs.base_sha }}\`" >> "$GITHUB_STEP_SUMMARY"
+            echo "- kongkongyo: \`${{ steps.check.outputs.feature_sha }}\`" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            if [ "${{ steps.build.outputs.build_success }}" = "true" ]; then
+              echo "📦 **Build successful** — \`management.html\` uploaded to Release" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "⚠️ **Build failed** — check logs for details" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          elif [ "${{ steps.merge.outputs.merge_status }}" = "conflict" ]; then
+            echo "⚠️ **Merge conflict** — PR created for manual resolution." >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "Conflicting files:" >> "$GITHUB_STEP_SUMMARY"
+            echo '${{ steps.merge.outputs.conflict_files }}' | tr '|' '\n' | while read -r f; do
+              [ -n "$f" ] && echo "- \`$f\`" >> "$GITHUB_STEP_SUMMARY"
+            done
+          else
+            echo "❌ **Merge failed** — check the logs above." >> "$GITHUB_STEP_SUMMARY"
+          fi

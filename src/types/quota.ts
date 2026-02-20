@@ -197,3 +197,64 @@ export interface CodexQuotaState {
   error?: string;
   errorStatus?: number;
 }
+
+// Kiro (AWS CodeWhisperer) API payload types
+export interface KiroSubscriptionInfo {
+  subscriptionTitle: string;
+  type?: string;
+  overageCapability?: string;
+  upgradeCapability?: string;
+}
+
+export interface KiroFreeTrialInfo {
+  freeTrialStatus: string;
+  usageLimitWithPrecision: number;
+  currentUsageWithPrecision: number;
+  freeTrialExpiry: number;
+}
+
+export interface KiroUsageBreakdown {
+  resourceType: string;
+  usageLimitWithPrecision: number;
+  currentUsageWithPrecision: number;
+  nextDateReset?: number;
+  freeTrialInfo?: KiroFreeTrialInfo;
+  overageRate?: number;
+  currency?: string;
+}
+
+export interface KiroQuotaPayload {
+  daysUntilReset?: number;
+  nextDateReset: number;
+  subscriptionInfo: KiroSubscriptionInfo;
+  usageBreakdownList: KiroUsageBreakdown[];
+  userInfo?: { userId: string };
+}
+
+export interface KiroQuotaErrorPayload {
+  __type?: string;
+  message?: string;
+  reason?: string;
+}
+
+export interface KiroBaseQuota {
+  used: number;
+  limit: number;
+  resetTime: number;
+}
+
+export interface KiroFreeTrialQuota {
+  used: number;
+  limit: number;
+  expiry: number;
+  status: string;
+}
+
+export interface KiroQuotaState {
+  status: 'idle' | 'loading' | 'success' | 'error';
+  subscriptionTitle: string | null;
+  baseQuota: KiroBaseQuota | null;
+  freeTrialQuota: KiroFreeTrialQuota | null;
+  error?: string;
+  errorStatus?: number;
+}
